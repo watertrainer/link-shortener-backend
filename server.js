@@ -35,7 +35,8 @@ const server = http.createServer((req, res) => {
         //construct path to requested File
         const pathname = url.replace("/home", "./dist");
         console.log(pathname);
-        if (!(url === "/home") && fs.existsSync(pathname)) {
+        //The extra cases are still the homepage, so we don't want to try to load a different file
+        if (!((url === "/home") || (url === "/home/")) && fs.existsSync(pathname)) {
             fs.readFile(pathname, function (err, data) {
                 if (err) {
                     //This should NEVER happen.
@@ -45,7 +46,12 @@ const server = http.createServer((req, res) => {
                 } else {
                     const ext = path.parse(pathname).ext;
                     res.statusCode = 200;
-                    res.setHeader('Content-Type', MIME_TYPES[ext]);
+                    var content_type = MIME_TYPES[ext];
+                    //If the conent type is not known, use text/plain, a undefined content type could crash the server
+                    if (content_type === undefined) {
+                        content_type = 'text/plain';
+                    }
+                    res.setHeader('Content-Type', content_type);
                     res.end(data);
                 }
             })
