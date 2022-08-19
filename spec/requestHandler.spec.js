@@ -187,5 +187,38 @@ describe("API requests", () => {
 
             done()
         })
-    });
+    }); it("should reject GET call to /api/shortened", () => {
+
+        var mockRequest = httpMocks.createRequest({
+            method: 'GET',
+            url: '/api/shorten'
+        });
+        handler.handleRequest(mockRequest, mockResponse, pool);
+        mockResponse.on('end', () => {
+            expect(mockResponse.getHeader("Content-Type")).toBe("text/plain");
+            expect(mockResponse._getStatusCode()).toBe(405);
+            expect(mockResponse._getData()).toBe("Only POST requests allowed")
+            expect(fsSpy).toHaveBeenCalledTimes(1);
+
+            done()
+        })
+    })
+    it("should shorten url sent to /api/shorten", (done) => {
+
+        var mockRequest = httpMocks.createRequest({
+            method: 'POST',
+            url: '/api/shorten',
+            body: { url: 'https://google.com' }
+        });
+        handler.handleRequest(mockRequest, mockResponse, pool);
+        mockRequest.send(mockRequest.body)
+        mockResponse.on('end', () => {
+            expect(mockResponse.getHeader("Content-Type")).toBe("application/json");
+            expect(mockResponse._getStatusCode()).toBe(200);
+            expect(mockResponse._getData()).toBe('{"url":"test_data"}')
+            expect(poolQuerySpy).toHaveBeenCalledTimes(1);
+
+            done()
+        })
+    })
 })

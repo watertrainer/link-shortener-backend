@@ -37,7 +37,7 @@ function randomString(length) {
     }
     return result;
 }
-async function handleRequest(req, res) {
+async function handleRequest(req, res, pool) {
     //get the full url for further parsing
     var url = new URL(req.url, req.protocol + '://' + req.headers.host);
     if (url.pathname === "/") {
@@ -83,19 +83,91 @@ async function handleRequest(req, res) {
                 }
             })
         }
-    } else if (url.startsWith("/api")) {
-        //api calls for new shortened links or stats
-        res.statusCode = 501;
-        res.setHeader('Content-Type', 'text/plain');
-        res.end("Not implemented yet");
+    } else if (url.pathname.startsWith("/api")) {//api calls for new shortened links or stats
+        if (url.pathname.startsWith("/api/stats")) {
+            const queryUrl = url.searchParams.get("url");
+            try {
+                db_res = await pool.query("SELECT * FROM shortls WHERE url=$1;", [queryUrl])
+                //sample data for api calls for stats
+                if (db_res.rows.length > 0) {
+                    res.statusCode = 200;
+                    res.setHeader('Content-Type', 'application/json');
+                    res.end(JSON.stringify(db_res.rows[0]));
+                    return;
+                } else {
+
+                    res.statusCode = 404;
+                    res.setHeader('Content-Type', 'text/plain');
+                    res.end("The url has not been shortened yet!");
+                    return;
+                }
+            }
+            catch (err) {
+                console.log(err)
+                res.statusCode = 400;
+                res.setHeader('Content-Type', 'text/plain');
+                res.end("An unknown error occured");
+                return;
+            }
+
+        } else if (url.pathname.startsWith("/api/shorten")) {
+            if (req.method !== "POST") {
+                res.statusCode = 405;
+                res.setHeader('Content-Type', "text/plain");
+                res.end("Only POST requests allowed")
+                return;
+            }
+            var body = "";
+            req.on('data', (chunk) => {
+                body += chunk;
+            });
+            req.on('end', async () => {
+                const queryUrl = (JSON.parse(body).url);
+                //try the url
+                //The URL has to be tested in the Backend to stop request forging from being a security risk
+                if (!validateUrl(queryUrl)) {
+                    res.statusCode = 400;
+                    res.setHeader('Content-Type', "text/plain");
+                    res.end("The URL is invalid")
+                    return;
+                }
+                var shortl = randomString(6);
+                try {
+                    db_res = await pool.query(
+                        "INSERT INTO shortls(url,shortl,viewed,shortened) VALUES ($1,$2,0,0) \
+                    ON CONFLICT (url) DO UPDATE SET shortened = shortls.shortened+1 \
+                    RETURNING (shortl);", [queryUrl, shortl])
+                    console.log(db_res.rows[0])
+                    res.statusCode = 200;
+                    res.setHeader("Content-type", "application/json")
+                    res.end(JSON.stringify(db_res.rows[0]));
+                    return;
+                } catch (err) {
+                    res.statusCode = 500;
+                    //If the error message is about the shortl key, send a accurate Error message
+                    if (err.detail.includes("already exists.") && err.detail.includes("Key (shortl)=")) {
+                        console.log(err.detail)
+                        //There is a chance that this error occures. When the random functions returns an existing Key.
+                        //Send an internal Server Error, so that the client retries the request, when it should be fixed
+                        res.setHeader('Content-Type', "text/plain");
+                        res.end("The random method generated an already exiting key. Try again.");
+                        return;
+                    } else {
+                        console.log(err)
+                        res.setHeader('Content-Type', "text/plain");
+                        res.end("An unknown Server Error occured, please try again");
+                        return;
+                    }
+
+                }
+            });
+        }
     } else {
         //redirection logic/404 page
         res.statusCode = 501;
         res.setHeader('Content-Type', 'text/plain');
         res.end("Not implemented yet");
     }
-} else {
-    //redirection logic
 }
 module.exports = {
     handleRequest: handleRequest,
