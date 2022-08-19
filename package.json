@@ -1,0 +1,12 @@
+{
+  "devDependencies": {
+    "jasmine": "^4.3.0",
+    "node-mocks-http": "^1.11.0"
+  },
+  "scripts": {
+    "test": "jasmine"
+  },
+  "dependencies": {
+    "pg": "^8.7.3"
+  }
+}
