@@ -163,10 +163,29 @@ async function handleRequest(req, res, pool) {
             });
         }
     } else {
-        //redirection logic/404 page
-        res.statusCode = 501;
-        res.setHeader('Content-Type', 'text/plain');
-        res.end("Not implemented yet");
+        //redirection logic
+        const queryUrl = url.pathname.substring(1);
+        //We need to use one client for all requests during an transaction
+        client = await pool.connect()
+        try {
+            await client.query("BEGIN");
+            db_res = await client.query("SELECT url FROM shortls WHERE shortl=$1", [queryUrl]);
+            if (db_res.rows.length > 0) {
+                res.statusCode = 302;
+                res.setHeader("Location", db_res.rows[0].url)
+
+                await client.query("UPDATE shortls SET viewed=shortls.viewed+1 WHERE shortl=$1", [queryUrl])
+                res.end();
+                await client.query("COMMIT")
+            } else {
+                await client.query("ROLLBACK")
+            }
+        } catch (err) {
+            await client.query("ROLLBACK");
+            console.log(err)
+        } finally {
+            client.release()
+        }
     }
 }
 module.exports = {
