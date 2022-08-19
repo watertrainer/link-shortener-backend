@@ -220,5 +220,23 @@ describe("API requests", () => {
 
             done()
         })
+    });
+    it("should redirect", (done) => {
+
+        var mockRequest = httpMocks.createRequest({
+            method: 'GET',
+            url: '/testurl'
+        });
+        let clientSpyObj = jasmine.createSpyObj("Client", ["release", "query"])
+        clientSpyObj.query.and.returnValue(Promise.resolve({ rows: [{ url: 'test_data' }] }))
+        let connectSpy = spyOn(Pool.prototype, "connect").and.returnValue(Promise.resolve(clientSpyObj));
+        handler.handleRequest(mockRequest, mockResponse, pool);
+        mockResponse.on('end', () => {
+            expect(mockResponse._getStatusCode()).toBe(302);
+            expect(mockResponse.getHeader("Location")).toBe("test_data");
+            expect(connectSpy).toHaveBeenCalledTimes(1);
+
+            done()
+        })
     })
 })
