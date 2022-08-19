@@ -162,3 +162,30 @@ describe("Server request handler", () => {
 
 
 });
+describe("API requests", () => {
+    let mockResponse;
+    let poolQuerySpy;
+    let pool;
+    beforeEach(() => {
+        mockResponse = httpMocks.createResponse({ eventEmitter: events.EventEmitter });
+        poolQuerySpy = spyOn(Pool.prototype, "query").and.returnValue(
+            Promise.resolve({ rows: [{ url: 'test_data' }] }));
+        pool = new Pool();
+    });
+    it("should send stats for requests to /api/stats", (done) => {
+
+        var mockRequest = httpMocks.createRequest({
+            method: 'GET',
+            url: '/api/stats?url=https://google.com'
+        });
+        handler.handleRequest(mockRequest, mockResponse, pool);
+        mockResponse.on('end', () => {
+            expect(mockResponse.getHeader("Content-Type")).toBe("application/json");
+            expect(mockResponse._getStatusCode()).toBe(200);
+            expect(mockResponse._getData()).toBe('{"url":"test_data"}')
+            expect(poolQuerySpy).toHaveBeenCalledTimes(1);
+
+            done()
+        })
+    });
+})
