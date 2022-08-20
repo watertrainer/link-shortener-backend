@@ -224,7 +224,6 @@ async function handleRequest(req, res, pool) {
         //checks if the requested file exits, if not serve index.html
         //construct path to requested File
         const pathname = url.pathname.replace("/home", "./dist");
-        console.log(pathname)
         //The extra cases are still the homepage, so we don't want to try to load a different file
         if (!((url.pathname === "/home") || (url.pathname === "/home/")) && fs.existsSync(pathname)) {
             serveFile(res, pathname)
