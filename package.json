@@ -1,10 +1,18 @@
 {
   "devDependencies": {
     "jasmine": "^4.3.0",
-    "node-mocks-http": "^1.11.0"
+    "node-mocks-http": "^1.11.0",
+    "nyc": "^15.1.0"
   },
   "scripts": {
-    "test": "jasmine"
+    "test": "jasmine",
+    "coverage": "nyc npm run test"
+  },
+  "nyc": {
+    "report-dir": "spec/coverage",
+    "exclude": [
+      "spec/**/*"
+    ]
   },
   "dependencies": {
     "pg": "^8.7.3"

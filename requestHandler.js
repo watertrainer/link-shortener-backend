@@ -148,7 +148,7 @@ async function getStats(req, res, pool, url) {
     }
     catch (err) {
         console.log(err)
-        sendResponse(res, default_content_type, 500, "An unknown error occured");
+        sendResponse(res, default_content_type, 500, "An unknown Server Error occured, please try again");
         return;
     }
 }
