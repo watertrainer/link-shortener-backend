@@ -117,7 +117,7 @@ async function shortenUrl(res, pool, queryUrl) {
         return;
     } catch (err) {
         //If the error message is about the shortl key, send a accurate Error message
-        if (err.detail.includes("already exists.") && err.detail.includes("Key (shortl)=")) {
+        if (err.detail && err.detail.includes("already exists.") && err.detail.includes("Key (shortl)=")) {
             console.log(err.detail)
             //There is a chance that this error occures. When the random functions returns an existing Key.
             //The chance for that is approximatly 1/(2*10^10)
