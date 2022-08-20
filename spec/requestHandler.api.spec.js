@@ -194,8 +194,7 @@ describe("API requests to /api/shorten", () => {
         });
 
         poolQuerySpy.and.callFake(() => {
-            //pg node would return an error with the detail property, so we do as well
-            throw { message: "The database connection was unsuccsesful", detail: "No connection could be established" }
+            throw new Error("The database connection was unsuccsesfull");
         });
         mockResponse.on('end', () => {
             expect(mockResponse.getHeader("Content-Type")).toBe("text/plain");
