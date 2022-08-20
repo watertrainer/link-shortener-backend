@@ -86,8 +86,22 @@ async function handleRequest(req, res, pool) {
     } else if (url.pathname.startsWith("/api")) {//api calls for new shortened links or stats
         if (url.pathname.startsWith("/api/stats")) {
             const queryUrl = url.searchParams.get("url");
+            const queryShortl = url.searchParams.get("shortl");
+            console.log(queryUrl);
+            console.log(queryShortl)
             try {
-                db_res = await pool.query("SELECT * FROM shortls WHERE url=$1;", [queryUrl])
+                let db_res;
+                if (queryUrl !== null && queryUrl !== "") {
+                    //if both are set we prefer queryUrl, although this shouldn't happen and thus the behavior is undefined
+                    db_res = await pool.query("SELECT * FROM shortls WHERE url=$1;", [queryUrl])
+                } else if (queryShortl !== "" && queryShortl !== null) {
+                    db_res = await pool.query("SELECT * FROM shortls WHERE shortl=$1;", [queryShortl])
+                } else {
+                    res.statusCode = 400;
+                    res.setHeader("Content-Type", "text/plain");
+                    res.end("Wrong parameters sent");
+                    return;
+                }
                 //sample data for api calls for stats
                 if (db_res.rows.length > 0) {
                     res.statusCode = 200;
