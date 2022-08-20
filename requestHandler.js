@@ -17,6 +17,8 @@ const MIME_TYPES = {
     '.pdf': 'application/pdf',
     '.doc': 'application/msword'
 };
+
+const default_content_type = "text/plain"
 //Validates that a given string is a valid URL
 function validateUrl(url) {
     try {
@@ -39,6 +41,14 @@ function randomString(length) {
     return result;
 }
 
+function sendResponse(res, content_type, statusCode, data) {
+    if (statusCode) {
+        res.statusCode = statusCode;
+    }
+    res.setHeader("Content-Type", content_type);
+    res.end(data);
+}
+
 async function redirect(req, res, pool, url) {
     //redirection logic
     const queryUrl = url.pathname.substring(1);
@@ -58,17 +68,21 @@ async function redirect(req, res, pool, url) {
             await client.query("ROLLBACK")
         }
     } catch (err) {
-        await client.query("ROLLBACK");
-        console.log(err)
+        console.error(err)
+        sendResponse(res, default_content_type, 500, "An unknown Error occured. The Database threw an error")
+        try {
+            await client.query("ROLLBACK");
+        } catch (err) {
+            console.error("ROLLBACK failed.")
+            console.error(err);
+        }
     } finally {
         client.release()
     }
 }
 async function shortenUrl(req, res, pool) {
     if (req.method !== "POST") {
-        res.statusCode = 405;
-        res.setHeader('Content-Type', "text/plain");
-        res.end("Only POST requests allowed")
+        sendResponse(res, default_content_type, 405, "Only POST requests allowed")
         return;
     }
     var body = "";
@@ -80,9 +94,7 @@ async function shortenUrl(req, res, pool) {
         //try the url
         //The URL has to be tested in the Backend to stop request forging from being a security risk
         if (!validateUrl(queryUrl)) {
-            res.statusCode = 400;
-            res.setHeader('Content-Type', "text/plain");
-            res.end("The URL is invalid")
+            sendResponse(res, default_content_type, 400, "The URL is invalid")
             return;
         }
         var shortl = randomString(6);
@@ -91,24 +103,19 @@ async function shortenUrl(req, res, pool) {
                 "INSERT INTO shortls(url,shortl,viewed,shortened) VALUES ($1,$2,0,0) \
             ON CONFLICT (url) DO UPDATE SET shortened = shortls.shortened+1 \
             RETURNING (shortl);", [queryUrl, shortl])
-            res.statusCode = 200;
-            res.setHeader("Content-type", "application/json")
-            res.end(JSON.stringify(db_res.rows[0]));
+            sendResponse(res, MIME_TYPES[".json"], 200, JSON.stringify(db_res.rows[0]))
             return;
         } catch (err) {
-            res.statusCode = 500;
             //If the error message is about the shortl key, send a accurate Error message
             if (err.detail.includes("already exists.") && err.detail.includes("Key (shortl)=")) {
                 console.log(err.detail)
                 //There is a chance that this error occures. When the random functions returns an existing Key.
-                //Send an internal Server Error, so that the client retries the request, when it should be fixed
-                res.setHeader('Content-Type', "text/plain");
-                res.end("The random method generated an already exiting key. Try again.");
+                //The chance for that is approximatly 1/(2*10^10)
+                sendResponse(res, default_content_type, 500, "The random method generated an already exiting key. Try again.")
                 return;
             } else {
                 console.log(err)
-                res.setHeader('Content-Type', "text/plain");
-                res.end("An unknown Server Error occured, please try again");
+                sendResponse(res, default_content_type, 500, "An unknown Server Error occured, please try again")
                 return;
             }
 
@@ -127,30 +134,21 @@ async function getStats(req, res, pool, url) {
         } else if (queryShortl !== "" && queryShortl !== null) {
             db_res = await pool.query("SELECT * FROM shortls WHERE shortl=$1;", [queryShortl])
         } else {
-            res.statusCode = 400;
-            res.setHeader("Content-Type", "text/plain");
-            res.end("Wrong parameters sent");
+            sendResponse(res, default_content_type, 400, "Wrong parameters sent")
             return;
         }
         //sample data for api calls for stats
         if (db_res.rows.length > 0) {
-            res.statusCode = 200;
-            res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify(db_res.rows[0]));
+            sendResponse(res, MIME_TYPES[".json"], 200, JSON.stringify(db_res.rows[0]));
             return;
         } else {
-
-            res.statusCode = 404;
-            res.setHeader('Content-Type', 'text/plain');
-            res.end("The url has not been shortened yet!");
+            sendResponse(res, default_content_type, 404, "The url has not been shortened yet!");
             return;
         }
     }
     catch (err) {
         console.log(err)
-        res.statusCode = 400;
-        res.setHeader('Content-Type', 'text/plain');
-        res.end("An unknown error occured");
+        sendResponse(res, default_content_type, 500, "An unknown error occured");
         return;
     }
 }
@@ -159,13 +157,10 @@ function serveIndexHtml(req, res) {
     fs.readFile("./dist/index.html", function (err, data) {
         if (err) {
             //This should NEVER happen.
-            res.statusCode = 404;
-            res.setHeader('Content-Type', 'text/plain');
-            res.end("This should NEVER happen. Please contact the server admin, the frontend files have not been found.");
+            sendResponse(res, default_content_type, 404, "This should NEVER happen. Please contact the server admin, the frontend files have not been found.");
+            return;
         } else {
-            res.statusCode = 200;
-            res.setHeader('Content-Type', 'text/html');
-            res.end(data);
+            sendResponse(res, MIME_TYPES[".html"], 200, data);
         }
     })
 }
@@ -173,19 +168,17 @@ function serveIndexHtml(req, res) {
 function serveFile(req, res, pathname) {
     fs.readFile(pathname, function (err, data) {
         if (err) {
-            res.statusCode = 404;
-            res.setHeader('Content-Type', 'text/plain');
-            res.end("The requested File was no found.");
+            sendResponse(res, default_content_type, 404, "The requested File was not found.");
+            return;
         } else {
             const ext = path.parse(pathname).ext;
-            res.statusCode = 200;
             var content_type = MIME_TYPES[ext];
             //If the conent type is not known, use text/plain, a undefined content type could crash the server
             if (content_type === undefined) {
                 content_type = 'text/plain';
             }
-            res.setHeader('Content-Type', content_type);
-            res.end(data);
+            sendResponse(res, content_type, 200, data);
+            return;
         }
     })
 }
