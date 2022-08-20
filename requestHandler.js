@@ -19,7 +19,11 @@ const MIME_TYPES = {
 };
 
 const default_content_type = "text/plain"
-//Validates that a given string is a valid URL
+/**
+ * Validates that a given string is a valid URL
+ * @param {string} url URL to test
+ * @returns 
+ */
 function validateUrl(url) {
     try {
         var queryUrl = new URL(url);
@@ -29,7 +33,11 @@ function validateUrl(url) {
         return false;
     }
 }
-//creates a random string of a given length (see https://stackoverflow.com/a/1349426/18718228)
+/**
+ * creates a random string of a given length (see https://stackoverflow.com/a/1349426/18718228)
+ * @param {number} length 
+ * @returns 
+ */
 function randomString(length) {
     var result = '';
     var characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
@@ -40,7 +48,14 @@ function randomString(length) {
     }
     return result;
 }
-
+/**
+ * Sends a response with the spcified statusCode, content type and data
+ * res has ended after this function and cannot be written to again
+ * @param {http.OutgoingMessage} res 
+ * @param {string} content_type 
+ * @param {number} statusCode 
+ * @param {any} data 
+ */
 function sendResponse(res, content_type, statusCode, data) {
     if (statusCode) {
         res.statusCode = statusCode;
@@ -48,24 +63,28 @@ function sendResponse(res, content_type, statusCode, data) {
     res.setHeader("Content-Type", content_type);
     res.end(data);
 }
-
-async function redirect(req, res, pool, url) {
-    //redirection logic
-    const queryUrl = url.pathname.substring(1);
+/**
+ * Responds with a redirection package or an error message, depending if queryShortl exists in the database
+ * @param {http.OutgoingMessage} res 
+ * @param {Pool} pool 
+ * @param {string} queryShortl 
+ */
+async function redirect(res, pool, queryShortl) {
     //We need to use one client for all requests during an transaction
     client = await pool.connect()
     try {
         await client.query("BEGIN");
-        db_res = await client.query("SELECT url FROM shortls WHERE shortl=$1", [queryUrl]);
+        db_res = await client.query("SELECT url FROM shortls WHERE shortl=$1", [queryShortl]);
         if (db_res.rows.length > 0) {
             res.statusCode = 302;
             res.setHeader("Location", db_res.rows[0].url)
 
-            await client.query("UPDATE shortls SET viewed=shortls.viewed+1 WHERE shortl=$1", [queryUrl])
+            await client.query("UPDATE shortls SET viewed=shortls.viewed+1 WHERE shortl=$1", [queryShortl])
             res.end();
             await client.query("COMMIT")
         } else {
             await client.query("ROLLBACK")
+            sendResponse(res, default_content_type, 404, "The shortl does not exist.")
         }
     } catch (err) {
         console.error(err)
@@ -80,52 +99,47 @@ async function redirect(req, res, pool, url) {
         client.release()
     }
 }
-async function shortenUrl(req, res, pool) {
-    if (req.method !== "POST") {
-        sendResponse(res, default_content_type, 405, "Only POST requests allowed")
-        return;
-    }
-    var body = "";
-    req.on('data', (chunk) => {
-        body += chunk;
-    });
-    req.on('end', async () => {
-        const queryUrl = (JSON.parse(body).url);
-        //try the url
-        //The URL has to be tested in the Backend to stop request forging from being a security risk
-        if (!validateUrl(queryUrl)) {
-            sendResponse(res, default_content_type, 400, "The URL is invalid")
-            return;
-        }
-        var shortl = randomString(6);
-        try {
-            db_res = await pool.query(
-                "INSERT INTO shortls(url,shortl,viewed,shortened) VALUES ($1,$2,0,0) \
+/**
+ * Shortens the queryUrl, sends all required data to the database and returns the shortl
+ * @param {string} queryUrl 
+ * @param {http.OutgoingMessage} res 
+ * @param {Pool} pool 
+ * @returns 
+ */
+async function shortenUrl(res, pool, queryUrl) {
+    var shortl = randomString(6);
+    try {
+        db_res = await pool.query(
+            "INSERT INTO shortls(url,shortl,viewed,shortened) VALUES ($1,$2,0,0) \
             ON CONFLICT (url) DO UPDATE SET shortened = shortls.shortened+1 \
             RETURNING (shortl);", [queryUrl, shortl])
-            sendResponse(res, MIME_TYPES[".json"], 200, JSON.stringify(db_res.rows[0]))
+        sendResponse(res, MIME_TYPES[".json"], 200, JSON.stringify(db_res.rows[0]))
+        return;
+    } catch (err) {
+        //If the error message is about the shortl key, send a accurate Error message
+        if (err.detail.includes("already exists.") && err.detail.includes("Key (shortl)=")) {
+            console.log(err.detail)
+            //There is a chance that this error occures. When the random functions returns an existing Key.
+            //The chance for that is approximatly 1/(2*10^10)
+            sendResponse(res, default_content_type, 500, "The random method generated an already exiting key. Try again.")
             return;
-        } catch (err) {
-            //If the error message is about the shortl key, send a accurate Error message
-            if (err.detail.includes("already exists.") && err.detail.includes("Key (shortl)=")) {
-                console.log(err.detail)
-                //There is a chance that this error occures. When the random functions returns an existing Key.
-                //The chance for that is approximatly 1/(2*10^10)
-                sendResponse(res, default_content_type, 500, "The random method generated an already exiting key. Try again.")
-                return;
-            } else {
-                console.log(err)
-                sendResponse(res, default_content_type, 500, "An unknown Server Error occured, please try again")
-                return;
-            }
-
+        } else {
+            console.log(err)
+            sendResponse(res, default_content_type, 500, "An unknown Server Error occured, please try again")
+            return;
         }
-    });
-}
 
-async function getStats(req, res, pool, url) {
-    const queryUrl = url.searchParams.get("url");
-    const queryShortl = url.searchParams.get("shortl");
+    }
+}
+/**
+ * Responds with all data regrding queryUrl OR shortl, if both arguments are provide, queryUrl is used.
+ * @param {http.OutgoingMessage} res 
+ * @param {Pool} pool 
+ * @param {string|null} queryUrl 
+ * @param {string|null} queryShortl 
+ * @returns 
+ */
+async function getStats(res, pool, queryUrl, queryShortl) {
     try {
         let db_res;
         if (queryUrl !== null && queryUrl !== "") {
@@ -152,8 +166,11 @@ async function getStats(req, res, pool, url) {
         return;
     }
 }
-
-function serveIndexHtml(req, res) {
+/**
+ * Serves the index.html
+ * @param {http.OutgoingMessage} res 
+ */
+function serveIndexHtml(res) {
     fs.readFile("./dist/index.html", function (err, data) {
         if (err) {
             //This should NEVER happen.
@@ -164,8 +181,12 @@ function serveIndexHtml(req, res) {
         }
     })
 }
-
-function serveFile(req, res, pathname) {
+/**
+ * Serves file in pathname.
+ * @param {http.OutgoingMessage} res 
+ * @param {string} pathname 
+ */
+function serveFile(res, pathname) {
     fs.readFile(pathname, function (err, data) {
         if (err) {
             sendResponse(res, default_content_type, 404, "The requested File was not found.");
@@ -182,8 +203,16 @@ function serveFile(req, res, pathname) {
         }
     })
 }
+/**
+ * Handles all requests made to the server
+ * @param {http.IncomingMessage} req 
+ * @param {http.OutgoingMessage} res 
+ * @param {Pool} pool 
+ * @returns 
+ */
 async function handleRequest(req, res, pool) {
     //get the full url for further parsing
+    //this also resolves all path travesal attempts
     var url = new URL(req.url, req.protocol + '://' + req.headers.host);
     if (url.pathname === "/") {
         //If trying to open the root of the webpage, redirect to the frontend
@@ -195,21 +224,44 @@ async function handleRequest(req, res, pool) {
         //checks if the requested file exits, if not serve index.html
         //construct path to requested File
         const pathname = url.pathname.replace("/home", "./dist");
+        console.log(pathname)
         //The extra cases are still the homepage, so we don't want to try to load a different file
         if (!((url.pathname === "/home") || (url.pathname === "/home/")) && fs.existsSync(pathname)) {
-            serveFile(req, res, pathname)
+            serveFile(res, pathname)
         } else {
-            serveIndexHtml(req, res)
+            serveIndexHtml(res)
         }
     } else if (url.pathname.startsWith("/api")) {//api calls for new shortened links or stats
         if (url.pathname.startsWith("/api/stats")) {
-            await getStats(req, res, pool, url);
+            const queryUrl = url.searchParams.get("url");
+            const queryShortl = url.searchParams.get("shortl");
+            await getStats(res, pool, queryUrl, queryShortl);
 
         } else if (url.pathname.startsWith("/api/shorten")) {
-            await shortenUrl(req, res, pool)
+            if (req.method !== "POST") {
+                sendResponse(res, default_content_type, 405, "Only POST requests allowed")
+                return;
+            }
+            var body = "";
+            req.on('data', (chunk) => {
+                body += chunk;
+            });
+            req.on('end', async () => {
+
+                const queryUrl = (JSON.parse(body).url);
+                //try the url
+                //The URL has to be tested in the Backend to stop request forging from being a security risk
+                if (!validateUrl(queryUrl)) {
+                    sendResponse(res, default_content_type, 400, "The URL is invalid")
+                    return;
+                }
+                await shortenUrl(res, pool, queryUrl);
+            })
         }
     } else {
-        await redirect(req, res, pool, url);
+        //redirection logic
+        const queryShortl = url.pathname.substring(1);
+        await redirect(res, pool, queryShortl);
     }
 }
 module.exports = {
